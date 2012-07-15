@@ -29,7 +29,7 @@ final class RelationType {
 	const MANY_TO_MANY = 4;
 }
 
-class Field {
+final class Field {
 	public $type;
 	public $maxlength;
 	public $nullable = true;
@@ -80,7 +80,7 @@ class Field {
 	}
 }
 
-class Relation {
+final class Relation {
 	public $type;
 	public $model;
 	public $full = false;
@@ -116,7 +116,7 @@ class Relation {
 	}
 }
 
-class AppException extends Exception {
+final class AppException extends Exception {
 	private $arrayMessage = false;
 
 	public function AppException($message = NULL, $code = 500) {
@@ -130,7 +130,7 @@ class AppException extends Exception {
 
 	public function getError() {
 		if ($this->arrayMessage) {
-			return json_decode($$this->getMessage());
+			return json_decode($this->getMessage());
 		}
 
 		return $$this->getMessage();
@@ -145,7 +145,7 @@ if (!function_exists('startsWith')) {
 	}
 }
 
-class ModelResource extends CI_Model {
+abstract class ModelResource extends CI_Model {
 	public $table;
 	public $key;
 	public $filtering = array();
@@ -354,7 +354,7 @@ class ModelResource extends CI_Model {
 		return $this->save($data);
 	}
 
-	public function update ($id, $data) {
+	public function update($id, $data) {
 		return $this->save($data, $id);
 	}
 
