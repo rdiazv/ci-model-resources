@@ -151,11 +151,24 @@ abstract class ModelResource extends CI_Model {
 	public $filtering = array();
 	public $columns = array();
 	public $relations = array();
+	public $pagination = true;
+	public $defaultPaginationLimit = 20;
+
+	public function getCount($params = array()) {
+		$this->filtering($params);
+		$this->parseRelations($params);
+
+		return $this->db->count_all_results($this->table);
+	}
 
 	public function getById($id) {
 		$result = $this->get(array(
 			$this->key => $id
 		));
+
+		if ($this->pagination) {
+			$result = $result['objects'];
+		}
 
 		if (count($result) > 0) {
 			return $result[0];
@@ -165,6 +178,10 @@ abstract class ModelResource extends CI_Model {
 	}
 
 	public function get($params = array()) {
+		if ($this->pagination) {
+			$this->pagination($params);
+		}
+
 		$this->filtering($params);
 		$this->sorting($params);
 		$this->parseRelations();
@@ -175,10 +192,64 @@ abstract class ModelResource extends CI_Model {
 			$result = $rset->result();
 			$this->normalizeRelations($result);
 			$this->compoundAttributes($result);
+
+			if ($this->pagination) {
+				$result = $this->wrapPagination($result, $params);
+			}
+
 			return $result;
 		} else {
 			throw new AppException("({$this->db->_error_number()}) {$this->db->_error_message()}", 500);
 		}
+	}
+
+	private function pagination(&$params) {
+		if (!array_key_exists('offset', $params)) {
+			$params['offset'] = 0;
+		}
+
+		if (array_key_exists('limit', $params) && $params['limit'] == 0) {
+			$params['offset'] = 0;
+			return;
+		}
+
+		if (!array_key_exists('limit', $params)) {
+			$params['limit'] = $this->defaultPaginationLimit;
+		}
+
+		$this->db->limit($params['limit'], $params['offset']);
+	}
+
+	private function wrapPagination($result, $params) {
+		$totalObjects = $this->getCount($params);
+		$wrapper = array(
+			'meta' => array(
+				'limit' => $params['limit'],
+				'offset' => $params['offset'],
+				'total' => $totalObjects,
+				'nextPage' => null,
+				'prevPage' => null
+			),
+			'objects' => $result
+		);
+
+		if ($params['limit'] > 0) {
+			$currentOffset = $params['offset'];
+			$nextOffset = $params['offset'] + $params['limit'];
+			$prevOffset = $params['offset'] - $params['limit'];
+
+			if ($nextOffset < $totalObjects) {
+				$params['offset'] = $nextOffset;
+				$wrapper['meta']['nextPage'] = current_url() . '/?' . http_build_query($params);
+			}
+
+			if ($currentOffset > 0) {
+				$params['offset'] = max(0, $prevOffset);
+				$wrapper['meta']['prevPage'] = current_url() . '/?' . http_build_query($params);
+			}
+		}
+
+		return $wrapper;
 	}
 
 	private function filtering($params) {
