@@ -133,7 +133,7 @@ final class AppException extends Exception {
 			return json_decode($this->getMessage());
 		}
 
-		return $$this->getMessage();
+		return $this->getMessage();
 	}
 
 }
