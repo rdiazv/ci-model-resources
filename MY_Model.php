@@ -84,6 +84,9 @@ final class Field {
 final class Relation {
 	public $type;
 	public $model;
+	public $through;
+	public $name;
+	public $direct;
 	public $full = false;
 
 	private function Relation($params) {
@@ -193,6 +196,7 @@ abstract class ModelResource extends CI_Model {
 			$result = $rset->result();
 			$this->normalizeRelations($result);
 			$this->compoundAttributes($result);
+			$this->complexRelations($result);
 
 			if ($this->pagination) {
 				$result = $this->wrapPagination($result, $params);
@@ -201,6 +205,82 @@ abstract class ModelResource extends CI_Model {
 			return $result;
 		} else {
 			throw new AppException("({$this->db->_error_number()}) {$this->db->_error_message()}", 500);
+		}
+	}
+
+	public function resolveRelation(&$resource, $relationColumn) {
+		$relation = $this->relations[$relationColumn];
+
+		if ($relation->type === RelationType::MANY_TO_MANY) {
+			$this->load->model($relation->through);
+			$this->load->model($relation->model);
+			$foreign = $this->{$relation->model};
+			$intermediate = $this->{$relation->through};
+			$intermediate->pagination = false;
+			$intermediate->filtering[$this->key] = Filtering::EXACT;
+			$intermediate->relations[$foreign->key] = Relation::ManyToOne(array('model' => $relation->model, 'full' => true));
+
+			if (is_object($resource)) {
+				$rset = $intermediate->get(array(
+					$this->key => $resource->{$this->key}
+				));
+
+				if ($relation->direct) {
+					$resource->{$relation->name} = array();
+
+					foreach ($rset as $foreignRow) {
+						$resource->{$relation->name}[] = $foreignRow->{$foreign->key};
+					}
+				} else {
+					$resource->{$relation->name} = $rset;
+				}
+			} else {
+				$rset = $intermediate->get(array(
+					$this->key => $resource
+				));
+
+				if ($relation->direct) {
+					$relationData = array();
+
+					foreach ($rset as $foreignRow) {
+						$relationData[] = $foreignRow->{$foreign->key};
+					}
+
+					return $relationData;
+				} else {
+					return $rset;
+				}
+			}
+		}
+	}
+
+	private function complexRelations(&$result) {
+		foreach ($this->relations as $relation) {
+			if ($relation->type === RelationType::MANY_TO_MANY && $relation->full) {
+				$this->load->model($relation->through);
+				$this->load->model($relation->model);
+				$foreign = $this->{$relation->model};
+				$intermediate = $this->{$relation->through};
+				$intermediate->pagination = false;
+				$intermediate->filtering[$this->key] = Filtering::EXACT;
+				$intermediate->relations[$foreign->key] = Relation::ManyToOne(array('model' => $relation->model, 'full' => true));
+
+				foreach ($result as &$row) {
+					$rset = $intermediate->get(array(
+						$this->key => $row->{$this->key}
+					));
+
+					if ($relation->direct) {
+						$row->{$relation->name} = array();
+
+						foreach ($rset as $foreignRow) {
+							$row->{$relation->name}[] = $foreignRow->{$foreign->key};
+						}
+					} else {
+						$row->{$relation->name} = $rset;
+					}
+				}
+			}
 		}
 	}
 
@@ -320,7 +400,7 @@ abstract class ModelResource extends CI_Model {
 			$filterDefined = true;
 		}
 
-		if (is_array($this->filtering[$column])) {
+		if ($filterDefined && is_array($this->filtering[$column])) {
 			$acceptsFilterType = $filterDefined && (in_array(Filtering::ALL, $this->filtering[$column]) || in_array($filterType, $this->filtering[$column]));
 		} else {
 			$acceptsFilterType = $filterDefined && ($this->filtering[$column] === Filtering::ALL || $this->filtering[$column] === $filterType);
@@ -354,9 +434,16 @@ abstract class ModelResource extends CI_Model {
 	private function parseRelations() {
 		foreach ($this->relations as $column => $relation) {
 			if ($relation->full) {
-				$this->load->model($relation->model);
-				$foreign = $this->{$relation->model};
-				$this->db->join($foreign->table, "{$foreign->table}.{$foreign->key} = {$this->table}.{$column}");
+				switch ($relation->type) {
+					case RelationType::MANY_TO_ONE:
+						$this->load->model($relation->model);
+						$foreign = $this->{$relation->model};
+						$this->db->join($foreign->table, "{$foreign->table}.{$foreign->key} = {$this->table}.{$column}");
+						break;
+
+					case RelationType::MANY_TO_MANY:
+						break;
+				}
 			}
 		}
 	}
@@ -372,9 +459,18 @@ abstract class ModelResource extends CI_Model {
 
 			if ($hasFullRelation) {
 				$relation = $this->relations[$column];
-				$this->load->model($relation->model);
-				$foreign = $this->{$relation->model};
-				$columnsQuery[] = $foreign->getColumnsQuery(array('prefix' => $column));
+
+				switch ($relation->type) {
+					case RelationType::MANY_TO_ONE:
+						$this->load->model($relation->model);
+						$foreign = $this->{$relation->model};
+						$columnsQuery[] = $foreign->getColumnsQuery(array('prefix' => $column));
+						break;
+
+					case RelationType::MANY_TO_MANY:
+						$columnsQuery[] = "{$table}.{$column} AS {$prefix}{$column}";
+						break;
+				}
 			} else {
 				$columnsQuery[] = "{$table}.{$column} AS {$prefix}{$column}";
 			}
@@ -386,18 +482,23 @@ abstract class ModelResource extends CI_Model {
 	private function normalizeRelations($result) {
 		foreach ($this->relations as $relationColumn => $relation) {
 			if ($relation->full) {
-				foreach ($result as &$row) {
-					$relationObject = new stdClass();
-					$relationColumnStringLength = strlen($relationColumn) + 2;
 
-					foreach ($row as $column => $value) {
-						if (startsWith($column, $relationColumn)) {
-							$relationObject->{substr($column, $relationColumnStringLength)} = $value;
-							unset($row->{$column});
+				switch ($relation->type) {
+					case RelationType::MANY_TO_ONE:
+						foreach ($result as &$row) {
+							$relationObject = new stdClass();
+							$relationColumnStringLength = strlen($relationColumn) + 2;
+
+							foreach ($row as $column => $value) {
+								if (startsWith($column, $relationColumn)) {
+									$relationObject->{substr($column, $relationColumnStringLength)} = $value;
+									unset($row->{$column});
+								}
+							}
+
+							$row->{$relationColumn} = $relationObject;
 						}
-					}
-
-					$row->{$relationColumn} = $relationObject;
+						break;
 				}
 			}
 		}
