@@ -436,11 +436,25 @@ abstract class ModelResource extends CI_Model {
 					$orderColumn = substr($orderColumn, 1);
 				}
 
-				if (! $this->columnExists($orderColumn)) {
-					throw new AppException("Column '{$orderColumn}' doesn't exists", 409);
-				}
+				if ($this->columnExists($orderColumn)) {
+					$this->db->order_by("{$this->table}.{$orderColumn}", $orderDirection);
+				} else {
+					$matches = array();
 
-				$this->db->order_by("{$this->table}.{$orderColumn}", $orderDirection);
+					if (preg_match('/^(?P<relation>.+)__(?P<column>.+)$/', $orderColumn, $matches)) {
+						$relationExists = array_key_exists($matches['relation'], $this->relations);
+						$fullRelation = $relationExists && $this->relations[$matches['relation']]->full;
+
+						if ($fullRelation) {
+							$relation = $this->relations[$matches['relation']];
+							$this->load->model($relation->model);
+							$foreign = $this->{$relation->model};
+							$this->db->order_by("{$foreign->table}.{$matches['column']}", $orderDirection);
+						}
+					} else {
+						throw new AppException("Column '{$orderColumn}' doesn't exists", 409);
+					}
+				}
 			}
 		} else if (!is_null($this->orderby)) {
 			$this->db->order_by($this->orderby);
