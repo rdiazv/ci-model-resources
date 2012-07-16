@@ -157,6 +157,7 @@ abstract class ModelResource extends CI_Model {
 	public $relations = array();
 	public $pagination = true;
 	public $defaultPaginationLimit = 20;
+	public $orderby;
 
 	public function getCount($params = array()) {
 		$this->filtering($params);
@@ -428,6 +429,8 @@ abstract class ModelResource extends CI_Model {
 
 				$this->db->order_by("{$this->table}.{$orderColumn}", $orderDirection);
 			}
+		} else if (!is_null($this->orderby)) {
+			$this->db->order_by($this->orderby);
 		}
 	}
 
