@@ -281,6 +281,19 @@ abstract class ModelResource extends CI_Model {
 						$row->{$relation->name} = $rset;
 					}
 				}
+			} else if ($relation->type === RelationType::ONE_TO_MANY && $relation->full) {
+				$this->load->model($relation->model);
+				$foreign = $this->{$relation->model};
+				$foreign->pagination = false;
+				$foreign->filtering[$this->key] = Filtering::EXACT;
+
+				foreach ($result as &$row) {
+					$rset = $foreign->get(array(
+						$this->key => $row->{$this->key}
+					));
+
+					$row->{$relation->name} = $rset;
+				}
 			}
 		}
 	}
@@ -444,6 +457,7 @@ abstract class ModelResource extends CI_Model {
 						$this->db->join($foreign->table, "{$foreign->table}.{$foreign->key} = {$this->table}.{$column}");
 						break;
 
+					case RelationType::ONE_TO_MANY:
 					case RelationType::MANY_TO_MANY:
 						break;
 				}
@@ -470,6 +484,7 @@ abstract class ModelResource extends CI_Model {
 						$columnsQuery[] = $foreign->getColumnsQuery(array('prefix' => $column));
 						break;
 
+					case RelationType::ONE_TO_MANY:
 					case RelationType::MANY_TO_MANY:
 						$columnsQuery[] = "{$table}.{$column} AS {$prefix}{$column}";
 						break;
