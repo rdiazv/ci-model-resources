@@ -38,6 +38,7 @@ final class Field {
 	public $default;
 	public $readonly = false;
 	public $unique = false;
+	public $helptext = '';
 
 	private function Field ($params) {
 		$properties = get_class_vars(__CLASS__);
