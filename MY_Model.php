@@ -569,8 +569,9 @@ abstract class ModelResource extends CI_Model {
 		}
 
 		$this->removeNonColumnsKeys($data);
-		$this->dehydrateRelations($data);
 		$this->verifyUniqueFields($data);
+		$this->dehydrateRelations($data);
+		$relationsData = $this->dehydrateComplexRelations($data);
 
 		if (count($data) > 0) {
 			if (is_null($id)) {
@@ -579,12 +580,18 @@ abstract class ModelResource extends CI_Model {
 				$rset = $this->db->where($this->key, $id)->update($this->table, $data);
 			}
 
+			$insertId = $this->db->insert_id();
+			$returnValue = is_null($id) ? $insertId : $this->affected_rows();
+			$id = is_null($id) ? $insertId : $id;
+
+			$this->resolveComplexRelationsData($id, $relationsData);
+
 			if (!$rset) {
 				throw new AppException("({$this->db->_error_number()}) {$this->db->_error_message()}", 500);
 			}
 		}
 
-		return is_null($id) ? $this->db->insert_id() : $this->db->affected_rows();
+		return $returnValue;
 	}
 
 	private function verifyNullableFields($data) {
@@ -607,6 +614,16 @@ abstract class ModelResource extends CI_Model {
 	private function removeNonColumnsKeys(&$data) {
 		foreach ($data as $column => $value) {
 			$columnExists = $this->columnExists($column);
+			$isRelation = false;
+
+			if (!$columnExists) {
+				foreach ($this->relations as $relation) {
+					if ($relation->name === $column) {
+						$isRelation = true;
+						break;
+					}
+				}
+			}
 
 			if ($columnExists) {
 				$isWritable = $this->isWritable($column);
@@ -614,7 +631,7 @@ abstract class ModelResource extends CI_Model {
 				if (!$isWritable) {
 					unset($data[$column]);
 				}
-			} else {
+			} else if (!$isRelation) {
 				unset($data[$column]);
 			}
 		}
@@ -645,11 +662,56 @@ abstract class ModelResource extends CI_Model {
 		}
 	}
 
+	private function dehydrateComplexRelations(&$data) {
+		$relationsData = array();
+
+		foreach ($data as $column => $value) {
+			if (is_array($value)) {
+				foreach ($this->relations as $relation) {
+					if ($relation->name === $column) {
+						$relationsData[$column] = $value;
+						unset($data[$column]);
+					}
+				}
+			}
+		}
+
+		return $relationsData;
+	}
+
+	private function resolveComplexRelationsData($id, $data) {
+		foreach ($data as $column => $value) {
+			foreach ($this->relations as $relation) {
+				if ($relation->name === $column) {
+					switch ($relation->type) {
+						case RelationType::MANY_TO_MANY:
+							$this->load->model($relation->model);
+							$this->load->model($relation->through);
+							$foreign = $this->{$relation->model};
+							$intermediate = $this->{$relation->through};
+							$newData = array();
+
+							foreach ($value as $foreignKey) {
+								$newData[] = array(
+									$this->key => $id,
+									$foreign->key => $foreignKey
+								);
+							}
+
+							$this->db->insert_batch($intermediate->table, $newData);
+							break;
+					}
+				}
+			}
+		}
+	}
+
 	private function verifyUniqueFields($data) {
 		$errors = array();
 
 		foreach ($data as $column => $value) {
-			$isUnique = $this->columns[$column]->unique;
+			$columnExists = $this->columnExists($column);
+			$isUnique = $columnExists && $this->columns[$column]->unique;
 
 			if ($isUnique) {
 				$uniqueInUse = $this->uniqueInUse($column, $value);
