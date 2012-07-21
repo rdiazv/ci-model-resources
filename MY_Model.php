@@ -578,10 +578,11 @@ abstract class ModelResource extends CI_Model {
 				$rset = $this->db->insert($this->table, $data);
 			} else {
 				$rset = $this->db->where($this->key, $id)->update($this->table, $data);
+				$this->resetComplexRelations($id);
 			}
 
 			$insertId = $this->db->insert_id();
-			$returnValue = is_null($id) ? $insertId : $this->affected_rows();
+			$returnValue = is_null($id) ? $insertId : $rset;
 			$id = is_null($id) ? $insertId : $id;
 
 			$this->resolveComplexRelationsData($id, $relationsData);
@@ -677,6 +678,18 @@ abstract class ModelResource extends CI_Model {
 		}
 
 		return $relationsData;
+	}
+
+	private function resetComplexRelations($id) {
+		foreach ($this->relations as $relation) {
+			switch ($relation->type) {
+				case RelationType::MANY_TO_MANY:
+					$this->load->model($relation->through);
+					$intermediate = $this->{$relation->through};
+					$this->db->where($this->key, $id)->delete($intermediate->table);
+					break;
+			}
+		}
 	}
 
 	private function resolveComplexRelationsData($id, $data) {
