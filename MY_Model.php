@@ -120,6 +120,23 @@ final class Relation {
 	}
 }
 
+final class SqlException extends Exception {
+	public $errno;
+	public $error;
+
+	public function SqlException($errno, $error, $code = 500) {
+		$this->errno = $errno;
+		$this->error = $error;
+
+		$message = "({$errno}) {$error}";
+		parent::__construct($message, $code);
+	}
+
+	public function getError() {
+		return $this->getMessage();
+	}
+}
+
 final class AppException extends Exception {
 	private $arrayMessage = false;
 
@@ -139,7 +156,6 @@ final class AppException extends Exception {
 
 		return $this->getMessage();
 	}
-
 }
 
 if (!function_exists('startsWith')) {
@@ -205,7 +221,7 @@ abstract class ModelResource extends CI_Model {
 
 			return $result;
 		} else {
-			throw new AppException("({$this->db->_error_number()}) {$this->db->_error_message()}", 500);
+			throw new SqlException($this->db->_error_number(), $this->db->_error_message(), 500);
 		}
 	}
 
@@ -588,7 +604,7 @@ abstract class ModelResource extends CI_Model {
 			$this->resolveComplexRelationsData($id, $relationsData);
 
 			if (!$rset) {
-				throw new AppException("({$this->db->_error_number()}) {$this->db->_error_message()}", 500);
+				throw new SqlException($this->db->_error_number(), $this->db->_error_message(), 500);
 			}
 		}
 
